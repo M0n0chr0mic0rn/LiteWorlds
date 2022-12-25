@@ -83,4 +83,17 @@
       echo json_encode((object)array('answer'=>'Access denied! Login first','bool'=>false), JSON_PRETTY_PRINT);
     }
   }
+
+  // NFT Explorer
+  if ($_GET["method"] === 'omni-get-nft-public') {
+      header('Content-type: application/json; charset=utf-8');
+      if (isset($_GET["propertyid"])) {
+          if (!isset($_GET["tokenstart"])) {
+              $ts = 1;
+          } else {
+              $ts = $_GET["tokenstart"];
+          }
+          $omni->publicNFTview($_GET["propertyid"], $ts);
+      }
+  }
 ?>
