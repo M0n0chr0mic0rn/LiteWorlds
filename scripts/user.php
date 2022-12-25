@@ -176,4 +176,3 @@ if ($_GET['method'] === 'user-change-mail') {
 if ($_GET['method'] === 'user-change-mail-sign') {
     if (isset($_GET['user']) && isset($_GET['copperkey']) && isset($_GET['jadekey']) && isset($_GET['crystalkey'])) {}
 }
-?>
