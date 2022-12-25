@@ -3,7 +3,7 @@
 
   require_once '/var/www/liteworlds/scripts/maria-user.php'; $user = new User;
   require_once '/var/www/liteworlds/scripts/maria-kotia.php'; $kotia = new Kotia;
-  require_once '/var/www/liteworlds/scripts/maria-litecoin.php'; $ltc = new Litecoin;
+  require_once '/var/www/liteworlds/scripts/maria-core.php'; $core = new Litecoin;
   require_once '/var/www/liteworlds/scripts/maria-omni.php'; $omni = new Omnilite;
   require_once '/var/www/liteworlds/scripts/counter.php'; $counter = new Counter;
 
