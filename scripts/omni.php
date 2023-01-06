@@ -177,11 +177,6 @@ if ($_GET["method"] === 'Vsendomninft') {
     }
 }
 
-if ($_GET["method"] === 'dontdothis123') {
-    header('Content-type: application/json; charset=utf-8');
-    $omni->testpayload();
-}
-
 // history
 if ($_GET["method"] === 'omni-history') {
     header('Content-type: application/json; charset=utf-8');
