@@ -6,7 +6,7 @@ Used Packages
 - sendmail
 - nginx
 - mariaDB
-- php-fpm
+- php-fpm 7.4
 - php-mysql
 - php-curl
 - Litecoin Core
