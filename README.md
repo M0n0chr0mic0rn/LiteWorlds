@@ -9,6 +9,7 @@ Used Packages
 - php-fpm 7.4
 - php-mysql
 - php-curl
+- php-gnupg
 - Litecoin Core
 - Litecoin Omnilite
 - Kotia Core
