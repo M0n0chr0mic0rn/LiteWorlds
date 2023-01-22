@@ -5,15 +5,10 @@ class Key{
     function Craft2FA() {
         $key = (object)array("copper"=>"LWQ","jade"=>"LWQ","crystal"=>"LWQ");
 
-        for ($a=0; $a < 3; $a++) { 
-            for ($b=0; $b < 128; $b++) { 
-                switch ($a) {
-                    case 0:$key->copper .= self::RandomSign();break;
-                    case 1:$key->jade .= self::RandomSign();break;
-                    case 2:$key->crystal .= self::RandomSign();break;
-                    default:break;
-                }
-            }
+        for ($b=0; $b < 128; $b++) { 
+            $key->copper .= self::RandomSign();
+            $key->jade .= self::RandomSign();
+            $key->crystal .= self::RandomSign();           
         }
 
         return $key;
