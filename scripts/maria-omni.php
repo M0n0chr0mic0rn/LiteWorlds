@@ -1,684 +1,336 @@
 <?php
-    require_once "/var/www/liteworlds/scripts/coin.php";
-	require_once "/var/www/liteworlds/scripts/coin-dev.php";
-	require_once "/var/www/liteworlds/scripts/maria-user.php";
+require_once "/var/www/liteworlds/scripts/key.php";
+require_once "/var/www/liteworlds/scripts/node.php";
+require_once "/var/www/liteworlds/scripts/node-dev.php";
 
-	class Omni {
-		private static $_db_username = 'maria';
-		private static $_db_passwort = 'KerkerRocks22';
-		private static $_db_host = '127.0.0.1';
-		private static $_db_name = 'API_litecoin';
-		private static $_db;
+class Omni {
+	private static $_db_username = 'maria';
+	private static $_db_passwort = 'KerkerRocks22';
+	private static $_db_host = '127.0.0.1';
+	private static $_db_name = 'API_litecoin';
+	private static $_db;
 
-		private static $_rpc_user = 'user';
-		private static $_rpc_pw = 'password';
-		private static $_rpc_host = '127.0.0.1';
-		private static $_rpc_port = '10000';
- 
-		function __construct(){
-			try{
-				self::$_db = new PDO("mysql:host=" . self::$_db_host . ";dbname=" . self::$_db_name, self::$_db_username, self::$_db_passwort);
-			}catch(PDOException $e){
-				echo "OMNILITE ERROR";
-				die();
-			}
-        }
+	private static $_rpc_user = 'user';
+	private static $_rpc_pw = 'password';
+	private static $_rpc_host = '192.168.0.165';
+	private static $_rpc_port = '10000';
+	private static $_node;
+	private static $_node_dev;
 
-		function help($command) {
-			$coin = new Coin(self::$_rpc_user, self::$_rpc_pw, self::$_rpc_host, self::$_rpc_port);
-			$help = $coin->help($command);
-			echo $help;
+	function __construct(){
+		try{
+			self::$_db = new PDO("mysql:host=" . self::$_db_host . ";dbname=" . self::$_db_name, self::$_db_username, self::$_db_passwort);
+			self::$_node = new Node(self::$_rpc_user, self::$_rpc_pw, self::$_rpc_host, self::$_rpc_port);
+			self::$_node_dev = new Node_Dev(self::$_rpc_user, self::$_rpc_pw, self::$_rpc_host, self::$_rpc_port);
+		}catch(PDOException $e){
+			echo "OMNILITE ERROR";
+			die();
+		}
+	}
+
+	function help($command) {
+		echo self::$_node->help($command);
+	}
+	function NodeBalance(){
+		return self::$_node->getbalance();
+	}
+
+	private function Balance($address, $minimum_confirmations, $maximum_confirmations){
+		$utxo = self::$_node->listunspent($minimum_confirmations, $maximum_confirmations, (array)$address);
+		$balance = 0;
+
+		for ($a=0; $a < count($utxo); $a++) { 
+			$balance += $utxo[$a]['amount'];
 		}
 
-		private function craftKeys($name, $ip, $column){
-			$stmt = self::$_db->prepare("SELECT * FROM $column WHERE Name=:name");
-			$stmt->bindParam(":name", $name);
-			$stmt->execute();
-	
-			if($stmt->rowCount() === 0){
-				// create 3 unique array with 0-3 for shuffling the key parameters
-				$keys = (object)array();
-				$max = 3;
-				$done = false;
-	
-				while(!$done){
-					$copper = range(0, $max);
-					shuffle($copper);
-					$done = true;
-					foreach($copper as $key => $val){
-						if($key == $val){
-							$done = false;
-							break;
-						}
-					}
+		return $balance;
+	}
+	private function Property($address){
+		$return = array("fungible"=>array(), "nft"=>array());
+		$allPropertys = self::$_node->omni_listproperties();
+
+		for ($a=0; $a < count($allPropertys); $a++) { 
+			if ($allPropertys[$a]['issuer'] == $address) {
+				$property = self::$_node->omni_getproperty($allPropertys[$a]['propertyid']);
+				if ($property['non-fungibletoken']) {
+					array_push($return['nft'], $property);
+				} else {
+					array_push($return['fungible'], $property);
 				}
-	
-				$done = false;
-	
-				while(!$done){
-					$jade = range(0, $max);
-					shuffle($jade);
-					
-					foreach($jade as $key => $val){
-						if($key == $val){
-							$done = false;
-							break;
-						}
-					}
-					if ($copper != $jade) {
-						$done = true;
-					}else{
-						$done = false;
-					}
-				}
-	
-				$done = false;
-	
-				while(!$done){
-					$crystal = range(0, $max);
-					shuffle($crystal);
-					
-					foreach($crystal as $key => $val){
-						if($key == $val){
-							$done = false;
-							break;
-						}
-					}
-					if ($copper != $crystal && $jade != $crystal) {
-						$done = true;
-					}else{
-						$done = false;
-					}
-				}
-	
-				$done = false;
-	
-				do {
-					// create a random number
-					$rnd = rand(0,1000000000000);
-					$dataArray = array($name, $ip, time(), $rnd);
-	
-					// shuffle the keys
-					$copper = $dataArray[$copper[0]].$dataArray[$copper[1]].$dataArray[$copper[2]].$dataArray[$copper[3]];
-					$jade = $dataArray[$jade[0]].$dataArray[$jade[1]].$dataArray[$jade[2]].$dataArray[$jade[3]];
-					$crystal = $dataArray[$crystal[0]].$dataArray[$crystal[1]].$dataArray[$crystal[2]].$dataArray[$crystal[3]];
-	
-					// hash the keys
-					$keys->copper = hash('sha3-512', $copper);
-					$keys->jade =  hash('sha3-512', $jade);
-					$keys->crystal = hash('sha3-512', $crystal);
-	
-					// verify keycombo is unique
-					$stmt = self::$_db->prepare("SELECT * FROM $column WHERE CopperKey=:copper AND JadeKey=:jade AND CrystalKey=:crystal");
-					$stmt->bindParam(":copper", $keys->copper);
-					$stmt->bindParam(":jade", $keys->jade);
-					$stmt->bindParam(":crystal", $keys->crystal);
-					$stmt->execute();
-					
-					if($stmt->rowCount() == 0)$done = true;
-				} while (!$done);
-	
-				return $keys;
-			}else{
-				return 'login allready prepared';
 			}
+		}
+		return $return;
+	}
+	private function Token($address) {
+		$return = array("fungible"=>array(), "nft"=>array());
+		$balances = self::$_node->omni_getallbalancesforaddress($address);
+		$nft = self::$_node->omni_getnonfungibletokens($address);
+
+		if ($balances) {
+			for ($a=0; $a < count($balances); $a++) { 
+				$property = self::$_node->omni_getproperty($balances[$a]['propertyid']);
+				if (!$property['non-fungibletoken']) {
+					$balances[$a]['data'] = $property['data'];
+					$balances[$a]['supply'] = $property['totaltokens'];
+					array_push($return['fungible'], $balances[$a]);
+				}
+			}
+		}
+
+		if (count($nft) > 0) {
+			for ($a=0; $a < count($nft); $a++) { 
+				$nft[$a]['tokenindex'] = array();
+				$property = self::$_node->omni_getproperty($nft[$a]['propertyid']);
+	
+				$balance = 0;
+				for ($b=0; $b < count($nft[$a]['tokens']); $b++) { 
+					$balance += $nft[$a]['tokens'][$b]['amount'];
+	
+					$start = $nft[$a]['tokens'][$b]['tokenstart'];
+					for ($c=0; $c < $nft[$a]['tokens'][$b]['amount']; $c++) { 
+						array_push($nft[$a]['tokenindex'], $start);
+						$start++;
+					}
+				}
+				$nft[$a]['balance'] = (string)$balance;
+				$nft[$a]['name'] = $property['name'];
+				$nft[$a]['data'] = $property['data'];
+				$nft[$a]['supply'] = $property['totaltokens'];
+	
+				//shuffle($nft[$a]['tokenindex']);
+				$array = $nft[$a]['tokenindex'];
+				shuffle($array);
+				$fulllist[$a] = array($nft[$a]['propertyid'] => $array);
+			}
+			shuffle($fulllist);
+			array_push($nft, $fulllist);
+	
+			$return['nft'] = $nft;
 		}
 		
-        function totalBalance(){
-			$coin = new Coin(self::$_rpc_user, self::$_rpc_pw, self::$_rpc_host, self::$_rpc_port);
-			return $coin->getbalance();
-		}
-
-		function testpayload() {
-			$coin = new Coin(self::$_rpc_user, self::$_rpc_pw, self::$_rpc_host, self::$_rpc_port);
-			$ecosystem = 2;
-			$type = 5;
-			$previousid = 0;
-			$category = "";
-			$subcategory = "";
-			$name = 'rawtransactiontest';
-			$url = "";
-			$data = "";
-
-			$address = "M9gZJYf8MFSy3x7T7Puf3BkeTVL8wK2hVh";
-
-
-			//$payload = $coin->omni_createpayload_issuancemanaged($ecosystem, $type, $previousid, $category, $subcategory, $name, $url, $data);
-			$payload = "000000360200050000000000007261777472616e73616374696f6e74657374000000";
-
-			
-
-
-			$unspent = $coin->listunspent(0, 999999999, (array)$address);
-			$inputAmount = 0;
-
-			for ($a=0; $a < count($unspent); $a++) { 
-				if ($inputAmount < 0.0005) {
-					$input[$a] = array("txid"=>$unspent[$a]['txid'], "vout"=>$unspent[$a]['vout']);
-					$inputAmount += $unspent[$a]['amount'];
-				}
+		return $return;
+	}
+	private function Dive($token) {
+		$dive = false;
+		for ($a=0; $a < count($token); $a++) { 
+			if ($token[$a]['propertyid'] == 3843) {
+				$dive = true;
 			}
-
-			$output[$address] = number_format($inputAmount - 0.00005, 8, ".", "");
-
-			//$txid = $coin->createrawtransaction($input, (object)$output);
-
-			$rawtx = "02000000014c46d425ff704a629d3883e814e8465b6ec12b2aea19292faa36457314bdc34d0000000000ffffffff01187301000000000017a914138e1a4d5b14909d2974a17110f9b1bf9adcb4a88700000000";
-
-			//$modrawtx = $coin->omni_createrawtx_opreturn($rawtx, $payload);
-			$modrawtx = "02000000014c46d425ff704a629d3883e814e8465b6ec12b2aea19292faa36457314bdc34d0000000000ffffffff02187301000000000017a914138e1a4d5b14909d2974a17110f9b1bf9adcb4a8870000000000000000286a266f6d6e69000000360200050000000000007261777472616e73616374696f6e7465737400000000000000";
-
-			//$signtx = $coin->signrawtransaction($modrawtx);
-			$signtx = "020000000001014c46d425ff704a629d3883e814e8465b6ec12b2aea19292faa36457314bdc34d0000000017160014f46fe26961edafcf0677f68dc4b130a039f43e8affffffff02187301000000000017a914138e1a4d5b14909d2974a17110f9b1bf9adcb4a8870000000000000000286a266f6d6e69000000360200050000000000007261777472616e73616374696f6e746573740000000247304402200ef1abdc75fdf1db211387d085e5090c6c26089f6fac7bb571e62f361f4ed65c0220485a9d8b1dcc25e589d4194b5fc50bffaf5e443337cbe1aa7368d7cf19fe8e0c012103ff9467b4c68e4b5fbd89c020378ee0045c0b31662422bd53cd72b98dac9ae71b00000000";
-			
-			//$finaltx = $coin->sendrawtransaction($signtx);
-			$finaltx = "1508ff0cbfe8d59f2bde88db1196c6c251b9d574f37f0ed580759dc6da996c0c";
-			
-			var_dump($finaltx);
 		}
+		return $dive;
+	}
+	function Wallet($userdata){
+		$result = (object)array();
+		$wallet = self::$_node->getaddressesbylabel($userdata->User);
 
-		function getAddress($name){
-			$coin = new Coin(self::$_rpc_user, self::$_rpc_pw, self::$_rpc_host, self::$_rpc_port);
-			$address = array_keys($coin->getaddressesbylabel($name));
-	
-			if (count($address) === 0) {
-				$address = $coin->getnewaddress($name);
-				return '{"answer":"Omni address generated", "address":"'.$address.'", "bool":1, "balance":0, "pending":0}';
-			}
+		if (!$wallet) {
+			$wallet = self::$_node->getnewaddress($userdata->User);
+			return '{"answer":"Omni address generated", "address":"'.$wallet.'", "bool":1, "balance":0, "pending":0}';
+		} else {
+			$wallet = array_keys($wallet);
 
 			$result->answer = "Omni address found";
 			$result->bool = true;
-			$result->address = $address[0];
-			$result->pending = self::getPending($address);
-			$result->balance = self::getBalance($address);
-			$result->nfts = self::getNFTss($address[0]);
+			$result->address = $wallet[0];
+			$result->pending = number_format(self::Balance($result->address, 1, 5), 8, ".", "");
+			$result->balance = number_format(self::Balance($result->address, 6, 999999999), 8, ".", "");
+			$result->property = self::Property($result->address);
+			$result->token = self::Token($result->address);
+			$result->utxo = self::$_node->listunspent(0, 999999999, (array)$result->address);
+			$result->dive = self::Dive($result->token['fungible']);
 			
 			return $result;
 		}
+	}
 
-		function prepareSend($userdata, $address, $amount){
-			$coin = new Coin_Dev(self::$_rpc_user, self::$_rpc_pw, self::$_rpc_host, self::$_rpc_port);
-			$myCoins = self::getAddress($userdata->User);
-			$unspent = $coin->listunspent(6, 999999999, (array)$myCoins->address);
-			
+	private function FeeBuild($challenger) {
+		$return = (object)array();
+		$return->amount = 0.0001;
 
-			$changeAddress = $myCoins->address;
-			$feeAddress = 'ltc1qtqkdavyufq8wjzh6hgrn7z68pe5mnt3vvjj3p3';
-			$frogAddress = 'ltc1qduhgah34d7wl8aq235mkstrx5kn770rwzr369u';
-			$frogAmount = 0.00003;
-			$fee = 0.00013;
-			$monoAmount = $fee - $frogAmount;
-			$chainfee = 0.0000023;
-			
-			$inputAmount = 0;
-			$input = array();
-			$output = array();
-
-			$loop = true;
-			$i = -1;
-
-			//create outputs
-			$output[$address] = 0;
-			$output[$feeAddress] = 0;
-			$output[$frogAddress] = 0;
-
-			$chainfee += 0.00000040 * count($output);
-
-			//create inputs
-			do {
-				$outputAmount = $amount + $fee + $chainfee;
-				if ($inputAmount < $outputAmount) {
-					$i++;
-					if ($i >= count($unspent)) {
-						echo 'Not enough coins';
-						return false;
-					}
-					$input[$i] = array("txid"=>$unspent[$i]['txid'], "vout"=>$unspent[$i]['vout']);
-					$inputAmount += $unspent[$i]['amount'];
-					$chainfee += 0.00000150;
+		$random = rand(1,100);
+		if ($random <= 50) {
+			// Mono wins
+			$return->destination = 'ltc1qx70d3g2rkdmze2nf9cykgek7xxrjquglfexulu';
+		} else {
+			if ($challenger == '') {
+				// faucet wins, if no challenger is present
+				$return->destination = 'MCtYmUDUvjCatos2whjAsPaBr2a1nwA1tG';
+			} else {
+				$random = rand(1,100);
+				if ($random <= 50) {
+					// Challenger wins
+					$return->destination = $challenger;
 				} else {
-					$loop = false;
-				}
-			} while ($loop);
-
-			//calc change
-			$changeAmount = $inputAmount - $outputAmount;
-			
-			// if change is less then 10000 sats spend it as dust to the network
-			if ($changeAmount >= 0.0001) {
-				$output[$changeAddress] = 0;
-				$output[$changeAddress] = $changeAmount;
-				$output[$changeAddress] = number_format($output[$changeAddress], 8, ".", "");
-			}
-
-			// assign output amounts
-			$output[$address] += $amount;
-			$output[$feeAddress] += $monoAmount;
-			$output[$frogAddress] += $frogAmount;
-
-			// format outputs to avoid errors
-			$output[$address] = number_format($output[$address], 8, ".", "");
-			$output[$feeAddress] = number_format($output[$feeAddress], 8, ".", "");
-			$output[$frogAddress] = number_format($output[$frogAddress], 8, ".", "");
-
-			echo 'outputAmount: '.$outputAmount.'<br>inputAmount: '.number_format($inputAmount, 8, ".", "").'<br>changeAmount: '.$changeAmount.'<br>Fee: '.number_format($chainfee, 8, ".", "").'<br>';
-			var_dump($output);
-			$txid = $coin->createrawtransaction($input, (object)$output);
-			echo '<br>txid: '.$txid;
-	
-			if ($txid != '') {
-				$keys = self::craftKeys($userdata->User, $userdata->LastIP, "send");
-				$time = time() + 120;
-	
-				$stmt = self::$_db->prepare("INSERT INTO send (User, TXID, IP, Time, CopperKey, JadeKey, CrystalKey) VALUES (:user, :txid, :ip, :time, :copperkey, :jadekey, :crystalkey)");
-				$stmt->bindParam(":user", $userdata->User);
-				$stmt->bindParam(":txid", $txid);
-				$stmt->bindParam(":ip", $userdata->LastIP);
-				$stmt->bindParam(":time", $time);
-				$stmt->bindParam(":copperkey", $keys->copper);
-				$stmt->bindParam(":jadekey", $keys->jade);
-				$stmt->bindParam(":crystalkey", $keys->crystal);
-				$stmt->execute();
-				var_dump($stmt->errorInfo());
-				if($stmt->rowCount() === 1){
-					// send mail for verfication
-					$empfaenger  = $userdata->Mail;
-					$betreff = 'Sign ur Transaction on LiteWorlds.quest Network';
-		
-					// message
-					$link = 'https://api.liteworlds.quest/?method=Vsendomni&user='.$userdata->User.'&copperkey='.$keys->copper.'&jadekey='.$keys->jade.'&crystalkey='.$keys->crystal;
-					//echo '<br>'.$link;
-					$nachricht = '
-						<a target="_blank" rel="noopener noreferrer" href="'.$link.'">
-							<button style="font-size:24px;width:37%;background-color:transparent;cursor:crosshair;border:3px solid darkgreen;border-radius:7px;">SIGN</button>
-						</a>
-						<p>'.$link.'</p>
-	
-	
-	
-					<html>
-						<body>
-							<p>Please sign ur Transaction</p>
-
-							<p>Blockchain Fee: '.number_format($chainfee, 8, ".", "").' LTC</p>
-							
-							<p>INPUT<br>';
-							for ($i=0; $i < count($input); $i++) { 
-								$nachricht .= $unspent[$i]['address'].' => '.number_format($unspent[$i]['amount'], 8, ".", "").'<br>';
-							}
-							$nachricht .= '</p>';
-	
-							$nachricht .= '<p>OUTPUT<br>';
-							for ($i=0; $i < count($output); $i++) { 
-								$nachricht .= array_keys($output)[$i].' => '.number_format(array_values($output)[$i], 8, ".", "").'<br>';
-							}
-							$nachricht .= '</p>';
-							$nachricht .= '
-						</body>
-					</html>
-					';
-		
-					$header = 
-						'From: Security <security@liteworlds.quest>' . "\r\n" .
-						'Reply-To: Security <security@liteworlds.quest>' . "\r\n" .
-						'MIME-Version: 1.0' . "\r\n" .
-						'Content-type: text/html; charset=iso-8859-1' . "\r\n" .
-						'X-Mailer: PHP/' . phpversion();
-	
-					// send mail
-					mail($empfaenger, $betreff, $nachricht, $header);
-		
-					return '{"answer":"Sending creation prepared, sign it via mail", "bool":1}';
-				}else{
-					return '{"answer":"Sending creation error1", "bool":0}';
-				}
-			}
-	
-			echo '{"answer":"Sending creation error", "bool":0}';
-			
-			return 0;
-		}
-		function send($user, $ip, $copperkey, $jadekey, $crystalkey){
-			echo 'User: '.$user.'<br>';
-			echo 'IP: '.$ip.'<br>';
-			echo 'COPPER: '.$copperkey.'<br>';
-			echo 'JADE: '.$jadekey.'<br>';
-			echo 'CRYSTAL: '.$crystalkey.'<br>';
-
-			$stmt = self::$_db->prepare("SELECT TXID FROM send WHERE User=:user AND CopperKey=:copperkey AND JadeKey=:jadekey AND CrystalKey=:crystalkey");
-			$stmt->bindParam(":user", $user);
-			$stmt->bindParam(":copperkey", $copperkey);
-			$stmt->bindParam(":jadekey", $jadekey);
-			$stmt->bindParam(":crystalkey", $crystalkey);
-			$stmt->execute();
-			var_dump($stmt->errorInfo());
-			if($stmt->rowCount() === 1){
-				$txid = $stmt->fetch()['TXID'];
-				//echo $txid;
-				//return 0;
-				$coin = new Coin(self::$_rpc_user, self::$_rpc_pw, self::$_rpc_host, self::$_rpc_port);
-				$signtx = $coin->signrawtransaction($txid);
-				print_r($signtx);
-				if($signtx['complete'] == 1){
-					$txid = $coin->sendrawtransaction($signtx['hex']);
-	
-					if ($txid != '') {
-						$stmt = self::$_db->prepare("DELETE FROM send WHERE User=:user AND CopperKey=:copperkey AND JadeKey=:jadekey AND CrystalKey=:crystalkey");
-						$stmt->bindParam(":user", $user);
-						$stmt->bindParam(":copperkey", $copperkey);
-						$stmt->bindParam(":jadekey", $jadekey);
-						$stmt->bindParam(":crystalkey", $crystalkey);
-						$stmt->execute();
-	
-						echo 'Transaction succesfull<br>Ur TXID: '.$txid;
-					}else {
-						echo 'Transaction Error';
-					}
+					// Faucet wins
+					$return->destination = 'MCtYmUDUvjCatos2whjAsPaBr2a1nwA1tG';
 				}
 			}
 		}
 
+		return $return;
+	}
+	private function InputBuild($utxo, $amount) {
+		$return = (object)array();
+		$return->list = array();
+		$return->amounts = array();
+		$return->amount = 0;
+		$return->chainfee = 0.00000044;
 
-		private function getPending($address){
-			$coin = new Coin(self::$_rpc_user, self::$_rpc_pw, self::$_rpc_host, self::$_rpc_port);
-	
-			$array = $coin->listunspent(0, 5, (array)$address);
-			$pending = 0;
-	
-			for ($i=0; $i < count($array); $i++) { 
-				$pending += $array[$i]['amount'];
-			}
-	
-			return $pending;
-		}
-		private function getBalance($address){
-			$coin = new Coin(self::$_rpc_user, self::$_rpc_pw, self::$_rpc_host, self::$_rpc_port);
-	
-			$array = $coin->listunspent(6, 999999999, (array)$address);
-			$balance = 0;
-	
-			for ($i=0; $i < count($array); $i++) { 
-				$balance += $array[$i]['amount'];
-			}
-	
-			return $balance;
-		}
-		function getNFTss($address = "MU78ANEyiaAAjM4Z7HT8zTB3HWCzrXvM6i") {
-			$coin = new Coin(self::$_rpc_user, self::$_rpc_pw, self::$_rpc_host, self::$_rpc_port);
-			$nfts = $coin->omni_getallbalancesforaddress($address);
-
-			$balance = 0;
-			for ($a=0; $a < count($nfts); $a++) { 
-				$balance += (int)$nfts[$a]['balance'];
-			}
-
-			return $balance;
-		}
-
-		function getprivkey($user){
-			$coin = new Coin(self::$_rpc_user, self::$_rpc_pw, self::$_rpc_host, self::$_rpc_port);
-			$address = self::getAddress($user->User)->address;
-
-			//var_dump($address);
-	
-			$privkey = $coin->dumpprivkey($address);
-			$betreff = 'Ur LiteWorlds.quest Network Private Omnilite Key';
-			$nachricht = $privkey;
-			$header = 
-				'From: Security <security@liteworlds.quest>' . "\r\n" .
-				'Reply-To: Security <security@liteworlds.quest>' . "\r\n" .
-				'MIME-Version: 1.0' . "\r\n" .
-				'Content-type: text/html; charset=iso-8859-1' . "\r\n" .
-				'X-Mailer: PHP/' . phpversion();
-			mail($user->Mail, $betreff, $nachricht, $header);
-		}
-
-		function prepareCreateProperty($userdata, $name, $category, $subcategory, $url, $data){
-			$keys = self::craftKeys($userdata->name, $userdata->lastip, "createproperty");
-			$time = time() + 300;
-
-			$stmt = self::$_db->prepare("INSERT INTO createproperty (Name, IP, Time, CopperKey, JadeKey, CrystalKey, PropertyName, Category, SubCategory, PropertyURL, PropertyData) VALUES (:name, :ip, :time, :copperkey, :jadekey, :crystalkey, :propertyname, :category, :subcategory, :propertyurl, :propertydata)");
-			$stmt->bindParam(":name", $userdata->name);
-			$stmt->bindParam(":ip", $userdata->lastip);
-			$stmt->bindParam(":time", $time);
-			$stmt->bindParam(":copperkey", $keys->copper);
-			$stmt->bindParam(":jadekey", $keys->jade);
-			$stmt->bindParam(":crystalkey", $keys->crystal);
-			$stmt->bindParam(":propertyname", $name);
-			$stmt->bindParam(":category", $category);
-			$stmt->bindParam(":subcategory", $subcategory);
-			$stmt->bindParam(":propertyurl", $url);
-			$stmt->bindParam(":propertydata", $data);
-			$stmt->execute();
-
-			echo $stmt->rowCount();
-			print_r($stmt->errorInfo());
-
-			if($stmt->rowCount() === 1){
-				// send mail for verfication
-				$empfaenger  = $userdata->mail;
-				$betreff = 'Sign ur Transaction on LiteWorlds.quest Network';
-	
-				// message
-				$link = 'https://api.liteworlds.quest/?method=Vomnicreateproperty&name='.$userdata->name.'&copperkey='.$keys->copper.'&jadekey='.$keys->jade.'&crystalkey='.$keys->crystal;
-				//echo '<br>'.$link;
-				$nachricht = '
-					<a target="_blank" rel="noopener noreferrer" href="'.$link.'">
-						<button style="font-size:24px;width:37%;background-color:transparent;cursor:crosshair;border:3px solid darkgreen;border-radius:7px;">SIGN</button>
-					</a>
-					<p>'.$link.'</p>
-
-
-
-				<html>
-					<body>
-						<p>Create Property '.$name.'</p>
-					</body>
-				</html>
-				';
-	
-				$header = 
-					'From: Security <security@liteworlds.quest>' . "\r\n" .
-					'Reply-To: Security <security@liteworlds.quest>' . "\r\n" .
-					'MIME-Version: 1.0' . "\r\n" .
-					'Content-type: text/html; charset=iso-8859-1' . "\r\n" .
-					'X-Mailer: PHP/' . phpversion();
-
-				// send mail
-				mail($empfaenger, $betreff, $nachricht, $header);
-	
-				return '{"answer":"Sending creation prepared, sign it via mail", "bool":1}';
-			}
-		}
-		function createProperty($name, $ip, $copperkey, $jadekey, $crystalkey){
-			$wallet = json_decode(self::getAddress($name));
-
-			$stmt = self::$_db->prepare("SELECT * FROM createproperty WHERE Name=:name AND IP=:ip AND CopperKey=:copperkey AND JadeKey=:jadekey AND CrystalKey=:crystalkey");
-			$stmt->bindParam(":name", $name);
-			$stmt->bindParam(":ip", $ip);
-			$stmt->bindParam(":copperkey", $copperkey);
-			$stmt->bindParam(":jadekey", $jadekey);
-			$stmt->bindParam(":crystalkey", $crystalkey);
-			$stmt->execute();
-
-			echo $stmt->rowCount();
-			$data = (object)$stmt->fetchALL(PDO::FETCH_ASSOC)[0];
-			print_r($data);
-
-			$coin = new Coin(self::$_rpc_user, self::$_rpc_pw, self::$_rpc_host, self::$_rpc_port);
-			$txid = $coin->omni_sendissuancemanaged($wallet->address, 1, 5, 0, $data->Category, $data->SubCategory, $data->PropertyName, $data->PropertyURL, $data->PropertyData);
-
-			if ($txid != '') {
-				$stmt = self::$_db->prepare("DELETE FROM createproperty WHERE Name=:name AND IP=:ip AND CopperKey=:copperkey AND JadeKey=:jadekey AND CrystalKey=:crystalkey");
-				$stmt->bindParam(":name", $name);
-				$stmt->bindParam(":ip", $ip);
-				$stmt->bindParam(":copperkey", $copperkey);
-				$stmt->bindParam(":jadekey", $jadekey);
-				$stmt->bindParam(":crystalkey", $crystalkey);
-				$stmt->execute();
-
-				echo 'Transaction succesfull<br>Ur TXID: '.$txid;
-			}else {
-				echo 'Transaction Error';
+		for ($a=0; $a < count($utxo); $a++) { 
+			if (($return->amount - ($amount + $return->chainfee + 0.0001)) < 0.0001) {
+				$return->list[$a] = array('txid'=>$utxo[$a]['txid'], 'vout'=>$utxo[$a]['vout']);
+				$return->amounts[$a] = $utxo[$a]['amount'];
+				$return->amount += $utxo[$a]['amount'];
+				$return->chainfee += 0.00000148;
+			} else {
+				$a = count($utxo);
 			}
 		}
 
-		function prepareMintNFT($userdata, $propertyid, $grantdata){
-			$user = new User;
-			$privateUserdata = $user->Pget($userdata->name);
-			$keys = self::craftKeys($userdata->name, $privateUserdata->lastip, "mintnft");
-			$time = time() + 300;
-			$amount = 1;
-
-			print_r($privateUserdata);
-
-			//$grantdata->object = json_decode($grantdata->object);
-
-			//print_r(json_encode($grantdata));
-			//return 0;
-
-			//$grantdata = json_encode($grantdata);
-
-			$stmt = self::$_db->prepare("INSERT INTO mintnft (Name, IP, Time, CopperKey, JadeKey, CrystalKey, PropertyID, Amount, GrantData) VALUES (:name, :ip, :time, :copperkey, :jadekey, :crystalkey, :propertyid, :amount, :grantdata)");
-			$stmt->bindParam(":name", $userdata->name);
-			$stmt->bindParam(":ip", $privateUserdata->lastip);
-			$stmt->bindParam(":time", $time);
-			$stmt->bindParam(":copperkey", $keys->copper);
-			$stmt->bindParam(":jadekey", $keys->jade);
-			$stmt->bindParam(":crystalkey", $keys->crystal);
-			$stmt->bindParam(":propertyid", $propertyid);
-			$stmt->bindParam(":amount", $amount);
-			$stmt->bindParam(":grantdata", $grantdata);
-			$stmt->execute();
-
-			//echo $stmt->rowCount();
-			print_r($stmt->errorInfo());
-
-			$grantdata = json_decode($grantdata);
-
-			if($stmt->rowCount() === 1){
-				// send mail for verfication
-				$empfaenger  = $privateUserdata->mail;
-				$betreff = 'Sign ur Transaction on LiteWorlds.quest Network';
-	
-				// message
-				$link = 'https://api.liteworlds.quest/?method=Vomnimintnft&name='.$userdata->name.'&copperkey='.$keys->copper.'&jadekey='.$keys->jade.'&crystalkey='.$keys->crystal;
-				//echo '<br>'.$link;
-				$nachricht = '
-					<a target="_blank" rel="noopener noreferrer" href="'.$link.'">
-						<button style="font-size:24px;width:37%;background-color:transparent;cursor:crosshair;border:3px solid darkgreen;border-radius:7px;">SIGN</button>
-					</a>
-					<p>'.$link.'</p>
-
-
-
-				<html>
-					<body>
-						<p>Mint '.$amount.' '.$grantdata->name.'</p>
-					</body>
-				</html>
-				';
-	
-				$header = 
-					'From: Security <security@liteworlds.quest>' . "\r\n" .
-					'Reply-To: Security <security@liteworlds.quest>' . "\r\n" .
-					'MIME-Version: 1.0' . "\r\n" .
-					'Content-type: text/html; charset=iso-8859-1' . "\r\n" .
-					'X-Mailer: PHP/' . phpversion();
-
-				// send mail
-				mail($empfaenger, $betreff, $nachricht, $header);
-	
-				return '{"answer":"Sending creation prepared, sign it via mail", "bool":1}';
-			}
+		if (0.0001 < ($return->amount - ($amount + $return->chainfee + 0.0001))) {
+			$return->change = $return->amount - ($amount + $return->chainfee + 0.0001);
+			return $return;
+		} else {
+			return false;
 		}
-		function mintNFT($name, $ip, $copperkey, $jadekey, $crystalkey){
-			$wallet = json_decode(self::getAddress($name));
+	}
+	private function InputBuildMultiSig($utxo, $amount) {
+		$return = (object)array();
+		$return->list = array();
+		$return->amounts = array();
+		$return->amount = 0;
+		$return->chainfee = 0.00000044;
 
-			$stmt = self::$_db->prepare("SELECT * FROM mintnft WHERE Name=:name AND IP=:ip AND CopperKey=:copperkey AND JadeKey=:jadekey AND CrystalKey=:crystalkey");
-			$stmt->bindParam(":name", $name);
-			$stmt->bindParam(":ip", $ip);
-			$stmt->bindParam(":copperkey", $copperkey);
-			$stmt->bindParam(":jadekey", $jadekey);
-			$stmt->bindParam(":crystalkey", $crystalkey);
-			$stmt->execute();
-
-			$data = (object)$stmt->fetchALL(PDO::FETCH_ASSOC)[0];
-			$data->GrantData = str_replace('\\', '', $data->GrantData);
-
-			$grantdata = json_decode($data->GrantData);
-			//$grantdata->object = json_encode($grantdata->object);
-			
-			//print_r($grantdata);
-			//$data->GrantData->object = null;
-			//print_r(json_decode($data->GrantData));
-
-			$coin = new Coin(self::$_rpc_user, self::$_rpc_pw, self::$_rpc_host, self::$_rpc_port);
-			$txid = $coin->omni_sendgrant($wallet->address, "", (int)$data->PropertyID, $data->Amount, json_encode($grantdata));
-
-			echo '<br>TXID: '.$txid.'<br>';
-
-			if ($txid != '') {
-				$stmt = self::$_db->prepare("DELETE FROM mintnft WHERE Name=:name AND IP=:ip AND CopperKey=:copperkey AND JadeKey=:jadekey AND CrystalKey=:crystalkey");
-				$stmt->bindParam(":name", $name);
-				$stmt->bindParam(":ip", $ip);
-				$stmt->bindParam(":copperkey", $copperkey);
-				$stmt->bindParam(":jadekey", $jadekey);
-				$stmt->bindParam(":crystalkey", $crystalkey);
-				$stmt->execute();
-
-				echo 'Transaction succesfull<br>Ur TXID: '.$txid;
-			}else {
-				echo 'Transaction Error';
+		for ($a=0; $a < count($utxo); $a++) { 
+			if ($return->amount < (0.001 + $amount)) {
+				$return->list[$a] = array('txid'=>$utxo[$a]['txid'], 'vout'=>$utxo[$a]['vout']);
+				$return->amounts[$a] = $utxo[$a]['amount'];
+				$return->amount += $utxo[$a]['amount'];
+				$return->chainfee += 0.00000148;
+			} else {
+				$a = count($utxo);
 			}
 		}
 
-		function prepareSendNFT($user, $to, $propertyid, $start){
-			$USER = new User;
-			$wallet = self::getAddress($user->User);
-			$lastip = $USER->Pget($user->User)->LastIP;
-			$keys = self::craftKeys($user->User, $lastip, "sendnft");
+		if ($return->amount >= (0.001 + $amount)) {
+			return $return;
+		} else {
+			return false;
+		}
+	}
+	private function InputBuildTrader($utxoT, $amountT, $trader, $utxoU, $amountU, $user) {
+		$return = (object)array();
+		$return->list = array();
+		$return->amounts = array();
+		$return->amount = 0;
+		$return->amountTrader = 0;
+		$return->amountUser = 0;
+		$return->chainfee = 0.00000044;
+		$c = 0;
+
+		for ($a=0; $a < count($utxoT); $a++) { 
+			if ($return->amountTrader < $amountT) {
+				$return->list[$a] = array('txid'=>$utxoT[$a]['txid'], 'vout'=>$utxoT[$a]['vout']);
+				$return->amounts[$a] = $utxoT[$a]['amount'];
+				$return->amount += $utxoT[$a]['amount'];
+				$return->amountTrader += $utxoT[$a]['amount'];
+				$return->chainfee += 0.00000148;
+				$c++;
+			} else {
+				$a = count($utxoT);
+			}
+		}
+		$return->changeTrader = $return->amountTrader;
+
+		for ($b=0; $b < count($utxoU); $b++) { 
+			if ($return->amountUser < ($amountU + 0.0001 + $return->chainfee)) {
+				$return->list[$b+$c] = array('txid'=>$utxoU[$b]['txid'], 'vout'=>$utxoU[$b]['vout']);
+				$return->amounts[$b+$c] = $utxoU[$b]['amount'];
+				$return->amount += $utxoU[$b]['amount'];
+				$return->amountUser += $utxoU[$b]['amount'];
+				$return->chainfee += 0.00000148;
+			} else {
+				$b = count($utxoU);
+			}
+		}
+		$return->changeUser = $return->amountUser - (0.0001 + $return->chainfee);
+		if ($return->changeUser < 0.0001 && $return->changeUser > 0) {
+			$return->changeUser = 0;
+		}
+
+		return $return;
+		var_dump($return);
+	}
+	private function SendPrepare($userdata, $txid, $origin, $input, $output) {
+		$stmt = self::$_db->prepare("SELECT * FROM send WHERE BINARY User=:user");
+		$stmt->bindParam(":user", $userdata->User);
+		$stmt->execute();
+		if ($stmt->rowCount() == 0) {
+			$key = new Key;
+			$keys = $key->Craft2FA();
 			$time = time() + 120;
 
-			$stmt = self::$_db->prepare("INSERT INTO sendnft (User, IP, Time, CopperKey, JadeKey, CrystalKey, LFrom, LTo, PropertyID, TokenStart, TokenEnd) VALUES (:user, :ip, :time, :copperkey, :jadekey, :crystalkey, :lfrom, :lto, :propertyid, :tstart, :tend)");
-			$stmt->bindParam(":user", $user->User);
-			$stmt->bindParam(":ip", $lastip);
+			$stmt = self::$_db->prepare("INSERT INTO send (User, TXID, IP, Time, Copper, Jade, Crystal) VALUES (:user, :txid, :ip, :time, :copper, :jade, :crystal)");
+			$stmt->bindParam(":user", $userdata->User);
+			$stmt->bindParam(":txid", $txid);
+			$stmt->bindParam(":ip", $userdata->LastIP);
 			$stmt->bindParam(":time", $time);
-			$stmt->bindParam(":copperkey", $keys->copper);
-			$stmt->bindParam(":jadekey", $keys->jade);
-			$stmt->bindParam(":crystalkey", $keys->crystal);
-			$stmt->bindParam(":lfrom", $wallet->address);
-			$stmt->bindParam(":lto", $to);
-			$stmt->bindParam(":propertyid", $propertyid);
-			$stmt->bindParam(":tstart", $start);
-			$stmt->bindParam(":tend", $start);
+			$stmt->bindParam(":copper", $keys->copper);
+			$stmt->bindParam(":jade", $keys->jade);
+			$stmt->bindParam(":crystal", $keys->crystal);
 			$stmt->execute();
-
-			var_dump($stmt->errorInfo());
-
-			if($stmt->rowCount() === 1){
+			//var_dump($stmt->errorInfo()[0]);
+			if ($stmt->errorInfo()[0] == "00000") {
 				// send mail for verfication
-				$empfaenger  = $USER->Pget($user->User)->Mail;
+				$empfaenger  = $userdata->Mail;
 				$betreff = 'Sign ur Transaction on LiteWorlds.quest Network';
-	
+				
 				// message
-				$link = 'https://api.liteworlds.quest/?method=Vsendomninft&user='.$user->User.'&copperkey='.$keys->copper.'&jadekey='.$keys->jade.'&crystalkey='.$keys->crystal;
+				$link = 'https://api.liteworlds.quest/?method=omni-sign&user='.$userdata->User.'&copper='.$keys->copper.'&jade='.$keys->jade.'&crystal='.$keys->crystal;
 				//echo '<br>'.$link;
 				$nachricht = '
-					<a target="_blank" rel="noopener noreferrer" href="'.$link.'">
-						<button style="font-size:24px;width:37%;background-color:transparent;cursor:crosshair;border:3px solid darkgreen;border-radius:7px;">SIGN</button>
-					</a>
-					<p>'.$link.'</p>
-
-
-
 				<html>
-					<body>
-						<p>Sending 1 NFT to '.$to.'</p>
+					<body style="background-color: black; color: deepskyblue;">
+					<table align="center">
+					<tr>
+						<td><img src="https://api.liteworlds.quest/LWLA.png" style="height:250px; margin-left:auto; margin-right:auto; display:block;"></td>
+					</tr>
+
+					<tr>
+						<td><p align="center">Blockchain Fee: '.$input->chainfee.' LTC</p></td>
+					</tr>
+					<tr>
+						<td><p align="center">INPUT<br>';
+						for ($a=0; $a < count($input->list); $a++) { 
+							$nachricht .= $origin[0].' => '.array_values($input->amounts)[$a].' LTC<br>';
+						}
+						$nachricht .= '</p></td>
+					</tr>
+					<tr>
+						<td>
+							<p align="center">OUTPUT<br>';
+							for ($a=0; $a < count($output); $a++) { 
+								$nachricht .= array_keys($output)[$a].' => '.array_values($output)[$a].' LTC<br>';
+							}
+							$nachricht .= '</p>
+						</td>
+					</tr>
+
+					<tr>
+						<td>
+							<p align="center" style="color:crimson;">Please sign your Transaction</p>
+							<a target="_blank" rel="noopener noreferrer" href="'.$link.'">
+								<button style="font-size:24px;width:100%;background-color:transparent;border:3px solid deepskyblue;border-radius:7px;color: deepskyblue">SIGN & SEND</button>
+							</a>
+						</td>
+					</tr>
+					
+					</table>
+
 					</body>
 				</html>
 				';
-	
+
 				$header = 
 					'From: Security <security@liteworlds.quest>' . "\r\n" .
 					'Reply-To: Security <security@liteworlds.quest>' . "\r\n" .
@@ -687,236 +339,868 @@
 					'X-Mailer: PHP/' . phpversion();
 
 				// send mail
-				mail($empfaenger, $betreff, $nachricht, $header);
-	
-				return '{"answer":"Sending creation prepared, sign it via mail", "bool":1}';
+				if (mail($empfaenger, $betreff, $nachricht, $header)) {
+					return true;
+				} else {
+					return false;
+				}
 			}
-
-		}
-		function sendNFT($user, $ip, $copperkey, $jadekey, $crystalkey){
-			$stmt = self::$_db->prepare("SELECT * FROM sendnft WHERE User=:user AND IP=:ip AND CopperKey=:copperkey AND JadeKey=:jadekey AND CrystalKey=:crystalkey");
-			$stmt->bindParam(":user", $user);
-			$stmt->bindParam(":ip", $ip);
-			$stmt->bindParam(":copperkey", $copperkey);
-			$stmt->bindParam(":jadekey", $jadekey);
-			$stmt->bindParam(":crystalkey", $crystalkey);
-			$stmt->execute();
-			$data = (object)$stmt->fetchALL(PDO::FETCH_ASSOC)[0];
-			print_r($data);
-
-			$coin = new Coin(self::$_rpc_user, self::$_rpc_pw, self::$_rpc_host, self::$_rpc_port);
-			$txid = $coin->omni_sendnonfungible($data->LFrom, $data->LTo, (int)$data->PropertyID, (int)$data->TokenStart, (int)$data->TokenEnd);
-
-			if ($txid != '') {
-				$stmt = self::$_db->prepare("DELETE FROM sendnft WHERE User=:user AND IP=:ip AND CopperKey=:copperkey AND JadeKey=:jadekey AND CrystalKey=:crystalkey");
-				$stmt->bindParam(":user", $user);
-				$stmt->bindParam(":ip", $ip);
-				$stmt->bindParam(":copperkey", $copperkey);
-				$stmt->bindParam(":jadekey", $jadekey);
-				$stmt->bindParam(":crystalkey", $crystalkey);
-				$stmt->execute();
-
-				echo 'Transaction succesfull<br>Ur TXID: '.$txid;
-			}else {
-				echo 'Transaction Error';
-			}
+		} else {
+			return false;
 		}
 
-		function getCollections($address){
-			$coin = new Coin(self::$_rpc_user, self::$_rpc_pw, self::$_rpc_host, self::$_rpc_port);
-			$Ocollections = $coin->omni_getallbalancesforaddress($address);
-			$collections = $coin->omni_listproperties();
-			$issuer = array();
-			$holder = array();
+		
+	}
 
-			//print_r($Ocollections);
+	function Send($user, $ip, $copper, $jade, $crystal){
+		$stmt = self::$_db->prepare("SELECT TXID FROM send WHERE BINARY User=:user AND BINARY Copper=:copper AND BINARY Jade=:jade AND BINARY Crystal=:crystal");
+		$stmt->bindParam(":user", $user);
+		$stmt->bindParam(":copper", $copper);
+		$stmt->bindParam(":jade", $jade);
+		$stmt->bindParam(":crystal", $crystal);
+		$stmt->execute();
+		//var_dump($stmt->errorInfo());
+		if($stmt->rowCount() === 1){
+			$txid = $stmt->fetch()['TXID'];
+			//echo $txid;
+			//return 0;
+			$signtx = self::$_node->signrawtransaction($txid);
+			//print_r($signtx);
+			//var_dump($signtx['hex']);
+			if($signtx['complete'] == 1){
+				$txid = self::$_node->sendrawtransaction($signtx['hex']);
 
-			for ($i=0; $i < count($collections); $i++) { 
-				if ($collections[$i]['non-fungibletoken'] == 1 && $collections[$i]['issuer'] == $address) {
-					$property = $coin->omni_getproperty($collections[$i]['propertyid']);
-					array_push($issuer, $property);
+				if ($txid) {
+					$stmt = self::$_db->prepare("DELETE FROM send WHERE BINARY User=:user AND BINARY Copper=:copper AND BINARY Jade=:jade AND BINARY Crystal=:crystal");
+					$stmt->bindParam(":user", $user);
+					$stmt->bindParam(":copper", $copper);
+					$stmt->bindParam(":jade", $jade);
+					$stmt->bindParam(":crystal", $crystal);
+					$stmt->execute();
+
+					echo '
+						<!DOCTYPE html>
+						<html>
+						<head>
+							<link rel="stylesheet" href="style.css">
+						</head>
+						<body style="background-color: black;">
+							<h1 style="text-align: center;margin-left: auto;margin-right: auto;width: 50%;font-weight: bold;color: deepskyblue">You made it!</h1>
+							<img src="https://api.liteworlds.quest/LWLA.png" style="height:250px; margin-left:auto; margin-right:auto; display:block;">
+							<h1 style="text-align: center;margin-left: auto;margin-right: auto;width: 50%;font-weight: bold;color: deepskyblue">HURRAY</h1>
+							<p style="text-align: center;margin-left: auto;margin-right: auto;width: 50%;font-weight: bold;color: deepskyblue">Your Transaction has been succesfully created and submitted to the Litecoin MemoryPool</p>
+							<p style="text-align: center;margin-left: auto;margin-right: auto;width: 50%;font-weight: bold;color: deepskyblue">You get redirected in <b id="time">10</b> seconds</p>
+						</body>
+						</html>
+						<script>
+							setTimeout(function(){
+								window.location.replace("https://blockchair.com/litecoin/transaction/'.$txid.'")
+							}, 10000)
+
+							let sec = 9
+							setInterval(function () {
+								document.getElementById("time").innerHTML = sec
+								
+								if (sec > 0) {
+									sec--
+								}
+							}, 1000)
+						</script>
+					';
+				}else {
+					echo 'Transaction Error';
+					var_dump($signtx['hex']);
+				}
+			}
+		}
+	}
+
+	function SendCreate($userdata, $destination, $amount, $challenger) {
+		$return = (object)array();
+		$wallet = self::Wallet($userdata);
+		$utxo = self::$_node->listunspent(6, 999999999, (array)$wallet->address);
+
+		// create inputs
+		$input = self::InputBuild($utxo, $amount);
+		if ($input) {
+			// create default output
+			$fee = self::FeeBuild($challenger);
+			$output = array();
+
+			//var_dump($fee);
+
+			// add custom outputs
+			// check fee == destination
+			if (!property_exists((object)$output, $destination)) {
+				$output[$destination] = $amount;
+			} else {
+				$output[$destination] += $mount;
+			}
+
+			// check change == destination
+			if ($wallet->address != $destination) {
+				$output[$wallet->address] = $input->change;
+			} else {
+				$output[$wallet->address] += $input->change;
+			}
+		
+			$output[$fee->destination] = number_format($fee->amount, 8, '.', '');
+			$output[$destination] = number_format($output[$destination], 8, '.', '');
+			
+			$input->chainfee += count($output) * 0.00000034;
+			$input->chainfee = number_format($input->chainfee, 8, '.', '');
+
+			$output[$wallet->address] -= count($output) * 0.00000034;
+			$output[$wallet->address] = number_format($output[$wallet->address], 8, '.', '');
+
+			//var_dump($input, (object)$output);
+			$total = 0;
+			for ($a=0; $a < count($output); $a++) { 
+				$total += array_values($output)[$a];
+			}
+			//var_dump($input->chainfee, number_format($input->amount - $total, 8, '.', ''));
+			$txid = self::$_node->createrawtransaction($input->list, (object)$output);
+			//var_dump($txid);
+			if ($txid) {
+				if(self::SendPrepare($userdata, $txid, (array)$wallet->address, $input, $output)){
+					$return->answer = 'Sending creation prepared, sign it via mail';
+					$return->bool = true;
+					$return->input = $input;
+					$return->output = $output;
+					return $return;
+				}else{
+					$return->answer = 'Sending creation error';
+					$return->bool = false;
+					return $return;
+				}
+			}
+		}
+	}
+
+	function PropertyCreate($userdata, $fixed, $ecosystem, $type, $previousid, $category, $subcategory, $name, $url, $data, $amount, $challenger) {
+		$return = (object)array();
+		$wallet = self::Wallet($userdata);
+		$utxo = self::$_node->listunspent(1, 999999999, (array)$wallet->address);
+
+		// create inputs
+		if ($ecosystem == 1) {
+			$input = self::InputBuildMultiSig($utxo, 0.1);
+		} else {
+			$input = self::InputBuildMultiSig($utxo, 0);
+		}
+		if ($input) {
+			//var_dump($input);
+			// create default output
+			$fee = self::FeeBuild($challenger);
+			$output = array();
+			if ($ecosystem == 1) {
+				$output['ltc1qx70d3g2rkdmze2nf9cykgek7xxrjquglfexulu'] = "0.10000000";
+				$input->amount -= 0.1;
+			}
+			$output[$fee->destination] = number_format($fee->amount, 8, '.', '');
+			$output[$wallet->address] = $input->amount - 0.0005 - $input->chainfee;
+
+			$input->chainfee += count($output) * 0.00000034;
+			$input->chainfee = number_format($input->chainfee, 8, '.', '');
+
+			$output[$wallet->address] -= count($output) * 0.00000034;
+			$output[$wallet->address] = number_format($output[$wallet->address], 8, '.', '');
+
+			//var_dump($output);
+
+			$rawtx = self::$_node->createrawtransaction($input->list, (object)$output);
+			//var_dump($rawtx);
+			if ($rawtx) {
+				if ($fixed == 0) {
+					//var_dump($ecosystem, $type, $previousid, $category, $subcategory, $name, $url, $data);
+					$payload = self::$_node->omni_createpayload_issuancemanaged($ecosystem, $type, $previousid, $category, $subcategory, $name, $url, $data);
+					//var_dump($payload);
+				} else {
+					$payload = self::$_node->omni_createpayload_issuancefixed($ecosystem, $type, $previousid, $category, $subcategory, $name, $url, $data, $amount);
 				}
 				
-			}
-
-			//print_r($result);
-			if (count($issuer) > 0) {
-				for ($i=0; $i < count($Ocollections); $i++) {
-					for ($x=0; $x < count($issuer); $x++) { 
-						if ($Ocollections[$i]['propertyid'] == $issuer[$x]['propertyid']) {
-							$x = count($issuer);
-						}
-	
-						if ($x == (count($issuer) - 1)) {
-							$property = $coin->omni_getproperty($Ocollections[$i]['propertyid']);					
-							if ($property['non-fungibletoken'] == 1) {
-								array_push($holder, $property);
-							}
-						}
-					}
-				}
-			}else{
-				for ($i=0; $i < count($Ocollections); $i++) {
-					$property = $coin->omni_getproperty($Ocollections[$i]['propertyid']);					
-					if ($property['non-fungibletoken'] == 1) {
-						array_push($holder, $property);
+				$modrawtx = self::$_node->omni_createrawtx_multisig($rawtx, $payload, $wallet->address, $wallet->address);
+				//var_dump($modrawtx);
+				if ($modrawtx) {
+					$input->chainfee = "0.00001225";
+					if(self::SendPrepare($userdata, $modrawtx, (array)$wallet->address, $input, $output)){
+						$return->answer = 'Sending creation prepared, sign it via mail';
+						$return->bool = true;
+						$return->input = $input;
+						$return->output = $output;
+						return $return;
+					}else{
+						$return->answer = 'Sending creation error';
+						$return->bool = false;
+						return $return;
 					}
 				}
 			}
+		}
+	}
 
-			$result = array("issuer"=>$issuer,"holder"=>$holder);
+	function NFTGet($property, $token) {
+		return self::$_node->omni_getnonfungibletokendata((int)$property, (int)$token, (int)$token);
+	}
+
+	function NFTMint($userdata, $property, $grantdata, $challenger){
+		$return = (object)array();
+		$wallet = self::Wallet($userdata);
+		$utxo = self::$_node->listunspent(1, 999999999, (array)$wallet->address);
+		$input = self::InputBuildMultiSig($utxo, 0);
+
+		if ($input) {
+			$fee = self::FeeBuild($challenger);
+			$output = array();
+			//var_dump($input->amount);
+			//var_dump($input->amount - 0.00028780 - 0.00001225);
+			if (substr($fee->destination, 0, 1) == 'M' || substr($fee->destination, 0, 1) == 'L') {
+				$fee->destination = 'ltc1qx70d3g2rkdmze2nf9cykgek7xxrjquglfexulu';
+			}
+
+			$output[$fee->destination] = number_format($fee->amount, 8, '.', '');
+			$output[$wallet->address] = $input->amount - 0.0005;
+			
+			$input->chainfee += count($output) * 0.00000034;
+			$input->chainfee = number_format($input->chainfee, 8, '.', '');
+
+			$output[$wallet->address] -= count($output) * 0.00000034;
+			$output[$wallet->address] = number_format($output[$wallet->address], 8, '.', '');
+
+			$rawtx = self::$_node->createrawtransaction($input->list, (object)$output);
+			//var_dump($rawtx);
+			if ($rawtx) {
+				$payload = self::$_node->omni_createpayload_grant($property, '1', $grantdata);
+				//var_dump($payload);
+				$modrawtx = self::$_node->omni_createrawtx_multisig($rawtx, $payload, $wallet->address, $wallet->address);
+				//var_dump($modrawtx);
+				if ($modrawtx) {
+					$input->chainfee = "0.00001225";
+					if(self::SendPrepare($userdata, $modrawtx, (array)$wallet->address, $input, $output)){
+						$return->answer = 'Sending creation prepared, sign it via mail';
+						$return->bool = true;
+						$return->input = $input;
+						$return->output = $output;
+						return $return;
+					}else{
+						$return->answer = 'Sending creation error';
+						$return->bool = false;
+						return $return;
+					}
+				}
+			}
+		}
+	}
+	//function NFTMassMint(){}
+
+	function SendNFT($userdata, $destination, $property, $token, $challenger) {
+		$return = (object)array();
+		$wallet = self::Wallet($userdata);
+		$utxo = self::$_node->listunspent(1, 999999999, (array)$wallet->address);
+
+		// create inputs
+		$input = self::InputBuild($utxo, 0.0001);
+		if ($input) {
+			// create default output
+			$fee = self::FeeBuild($challenger);
+			$output = array();
+
+			$output[$wallet->address] = $input->change;
+
+			if ($destination == $fee->destination) {
+				$output[$fee->destination] = $fee->amount + 0.0001;
+			} else {
+				$output[$fee->destination] = number_format($fee->amount, 8, '.', '');
+			}
+
+			$input->chainfee += count($output) * 0.00000034;
+			$input->chainfee = number_format($input->chainfee, 8, '.', '');
+
+			$output[$wallet->address] -= count($output) * 0.00000034;
+			$output[$wallet->address] = number_format($output[$wallet->address], 8, '.', '');
+
+			if ($destination != $fee->destination) {
+				$output[$destination] = number_format(0.0001, 8, '.', '');
+			}
+
+			$rawtx = self::$_node->createrawtransaction($input->list, (object)$output);
+			if ($rawtx) {
+				$payload = self::$_node->omni_createpayload_sendnonfungible($property, $token, $token);
+				$modrawtx = self::$_node->omni_createrawtx_opreturn($rawtx, $payload);
+				if ($modrawtx) {
+					if(self::SendPrepare($userdata, $modrawtx, (array)$wallet->address, $input, $output)){
+						$return->answer = 'Sending creation prepared, sign it via mail';
+						$return->bool = true;
+						$return->input = $input;
+						$return->output = $output;
+						return $return;
+					}else{
+						$return->answer = 'Sending creation error';
+						$return->bool = false;
+						return $return;
+					}
+				}
+			}
+		}
+	}
+
+	function NFTGetTrader() {
+		$balances = self::$_node->omni_getnonfungibletokens('MGTjUjDccbaCQZEyhFHDr1x9SAGwhyxa2L');
+		$result = array();
+
+		if (count($balances) == 0) {
+			$result['answer'] = 'no NFTs for sale';
+			$result['bool'] = false;
 			return $result;
-		}
-		function getNFTs($address, $propertyid, $tokenstart){
-			$coin = new Coin(self::$_rpc_user, self::$_rpc_pw, self::$_rpc_host, self::$_rpc_port);
-			$myToken = $coin->omni_getnonfungibletokens($address);
-			$result = array();
-			$nft = array();
-			$amount = 15;
-
-			//echo json_encode($myToken, JSON_PRETTY_PRINT);
-			//print_r($myToken[0]["tokens"][0]["tokenstart"]);
-
-			for ($a=0; $a < count($myToken); $a++) {
-				if ($myToken[$a]['propertyid'] == $propertyid) {
-					for ($b=0; $b < count($myToken[$a]["tokens"]); $b++) { 
-						if ($tokenstart <= $myToken[$a]["tokens"][$b]["tokenend"]) {
-							$ts = $myToken[$a]["tokens"][$b]["tokenstart"];
-							$te = $myToken[$a]["tokens"][$b]["tokenend"];
-
-							if ($tokenstart > $ts) {
-								$ts = $tokenstart;
-							}
-
-							if (($te - $ts) > $amount) {
-								$te = $ts + $amount - 1;
-							}
-
-							$nft = $coin->omni_getnonfungibletokendata((int)$propertyid, (int)$ts, (int)$te);
-
-							//echo json_encode($nft, JSON_PRETTY_PRINT);
-
-							for ($c=0; $c < count($nft); $c++) { 
-								if ($amount > 0) {
-									array_push($result, $nft[$c]);
-									$amount--;
-
-									if (count($result) === 15) {
-										return $result;
-									}
-								}
-							}
-							
-						}
-					}
-				}
-			}
-			return $result;
-		}
-		function publicNFTview($propertyid, $ts) {
-			$te = $ts + 25;
-			$coin = new Coin(self::$_rpc_user, self::$_rpc_pw, self::$_rpc_host, self::$_rpc_port);
-			$result = $coin->omni_getnonfungibletokendata((int)$propertyid, (int)$ts, (int)$te);
-			echo json_encode($result, JSON_PRETTY_PRINT);
-		}
-
-		function publicGetBalance($address) {
-			$coin = new Coin(self::$_rpc_user, self::$_rpc_pw, self::$_rpc_host, self::$_rpc_port);
-			//$addresses = array("MT8httQRtAQHwYT1mM8bxewgXSdsDWuFsr");
-			$result = $coin->omni_getallbalancesforaddress($address);
-			echo json_encode($result, JSON_PRETTY_PRINT);
-		}
-
-		function devground(){
-			$coin = new Coin(self::$_rpc_user, self::$_rpc_pw, self::$_rpc_host, self::$_rpc_port);
-			$balances = $coin->omni_getnonfungibletokens('MU78ANEyiaAAjM4Z7HT8zTB3HWCzrXvM6i');
-			$amount = 0;
-			$result = (object)array();
-			$result->answer = 'LiteWorlds DevGround Zero Sale ';
-			$result->bool = false;
-
+		} else {
 			for ($a=0; $a < count($balances); $a++) { 
-				if ($balances[$a]['propertyid'] === 3516) {
-					for ($b=0; $b < count($balances[$a]['tokens']); $b++) { 
-						if ($balances[$a]['tokens'][$b]['tokenstart'] <= 10000) {
-							$amount += $balances[$a]['tokens'][$b]['amount'];
-						}
-						if ($balances[$a]['tokens'][$b]['tokenstart'] <= 10000 && $balances[$a]['tokens'][$b]['tokenend'] > 10000) {
-							$amount -= ($balances[$a]['tokens'][$b]['tokenend'] - 10000); 
-						}
+				$element = array();
+	
+				$element = self::$_node->omni_getproperty($balances[$a]['propertyid']);
+				$element['list'] = array();
+	
+				for ($b=0; $b < count($balances[$a]['tokens']); $b++) { 
+					$token = $balances[$a]['tokens'][$b]['tokenstart'];
+	
+					for ($c=0; $c < $balances[$a]['tokens'][$b]['amount']; $c++) { 
+						array_push($element['list'], $token);
+						$token++;
+					}
+				}
+				array_push($result, $element);
+	
+				shuffle($element['list']);
+				$fulllist[$a] = array($balances[$a]['propertyid'] => $element['list']);
+			}
+			shuffle($fulllist);
+			array_push($result, $fulllist);
+			return $result;
+		}
+
+		
+	}
+
+	function cancelTrader($userdata, $property, $token, $challenger) {
+		$return = (object)array();
+		$trader = 'MGTjUjDccbaCQZEyhFHDr1x9SAGwhyxa2L';
+		$utxoT = self::$_node->listunspent(1, 999999999, (array)$trader);
+		$wallet = self::wallet($userdata);
+		$utxoU = self::$_node->listunspent(1, 999999999, (array)$wallet->address);
+
+		$input = self::InputBuildTrader($utxoT, 0.0001, $trader, $utxoU, 0.0001, $wallet->address);
+		if ($input) {
+			$fee = self::FeeBuild($challenger);
+			$output = array();
+
+			$output[$fee->destination] = number_format($fee->amount, 8, '.', '');
+			$output[$trader] = number_format($input->changeTrader, 8, '.', '');
+			$output[$wallet->address] = $input->changeUser;
+
+			$input->chainfee += count($output) * 0.00000034;
+			$input->chainfee = number_format($input->chainfee, 8, '.', '');
+
+			$output[$wallet->address] -= count($output) * 0.00000034;
+			$output[$wallet->address] = number_format($output[$wallet->address], 8, '.', '');
+
+			//$output[$destination] = number_format(0.0001, 8, '.', '');
+
+			//var_dump($input->list);
+
+			$rawtx = self::$_node->createrawtransaction($input->list, (object)$output);
+			//var_dump($rawtx);
+			if ($rawtx) {
+				$payload = self::$_node->omni_createpayload_sendnonfungible($property, $token, $token);
+				$modrawtx = self::$_node->omni_createrawtx_opreturn($rawtx, $payload);
+				//var_dump($payload, $modrawtx);
+				if ($modrawtx) {
+					if(self::SendPrepare($userdata, $modrawtx, (array)$wallet->address, $input, $output)){
+						$return->answer = 'Sending creation prepared, sign it via mail';
+						$return->bool = true;
+						$return->input = $input;
+						$return->output = $output;
+						return $return;
+					}else{
+						$return->answer = 'Sending creation error';
+						$return->bool = false;
+						return $return;
 					}
 				}
 			}
-
-			if ($amount - 5000 > 0) {
-				$result->answer .= 'active';
-				$result->bool = true;
-				$result->supply = 5000;
-				$result->sale = $amount - 5000;
-				$result->price = 0.25;
-			}else{
-				$result->answer .= 'inactive';
-			}
-
-			return $result;
 		}
-		function devgroundPrepare($userdata){
-			$payto = 'ltc1qt7celuzafdh20x4dgaq4as050uealnnhhuzfja';
-			$useromni = json_decode(self::getAddress($userdata->name));
+	}
 
-			if ($useromni->balance > 0.25) {
-				# code...
-			}
+	function takeTrader($userdata, $property, $token, $challenger) {
+		$return = (object)array();
+		$trader = 'MGTjUjDccbaCQZEyhFHDr1x9SAGwhyxa2L';
+		$utxoT = self::$_node->listunspent(1, 999999999, (array)$trader);
+		$wallet = self::wallet($userdata);
+		$utxoU = self::$_node->listunspent(1, 999999999, (array)$wallet->address);
 
-			print_r($useromni);
+		$holderdata = self::$_node->omni_getnonfungibletokendata($property, $token, $token)[0]['holderdata'];
+		$desire = (float)json_decode($holderdata)->desire;
+		$destination = json_decode($holderdata)->destination;
+
+		$available = ((float)$wallet->balance + (float)$wallet->pending) - $desire;
+
+		if ($available < 0) {
+			$return->answer = 'not enough coins';
+			$return->bool = false;
+			return $return;
 		}
+		
 
-		function history($user, $start) {
-			$count = 10000;
-			$bcfactor = 100000000;
-			$omni = self::getAddress($user);
-			$coin = new Coin(self::$_rpc_user, self::$_rpc_pw, self::$_rpc_host, self::$_rpc_port);
-			$history = $coin->listtransactions($user, $count, $start);
-			$history = array_reverse($history);
-			$txids = array();
-			$legacy = array();
-			$segwit = array();
-			$taproot = array();
 
-			$unspent = $coin->listunspent(0, 999999999, (array)$omni->address);
-			//var_dump($unspent);
+		$input = self::InputBuildTrader($utxoT, 0.0001, $trader, $utxoU, (0.0001 + $desire), $wallet->address);
+		if ($input) {
+			$fee = self::FeeBuild($challenger);
+			$output = array();
+
+			$output[$fee->destination] = number_format($fee->amount, 8, '.', '');
+			$output[$trader] = number_format($input->changeTrader, 8, '.', '');
+			$output[$destination] = number_format($desire, 8, '.', '');
+			$output[$wallet->address] = $input->changeUser - $desire;
+
+			$input->chainfee += count($output) * 0.00000034;
+			$input->chainfee = number_format($input->chainfee, 8, '.', '');
+
+			$output[$wallet->address] -= count($output) * 0.00000034;
+			$output[$wallet->address] = number_format($output[$wallet->address], 8, '.', '');
+
+			//var_dump($input, $output);
+			$rawtx = self::$_node->createrawtransaction($input->list, (object)$output);
+			//var_dump($rawtx);
+			if ($rawtx) {
+				$payload = self::$_node->omni_createpayload_sendnonfungible($property, $token, $token);
+				$modrawtx = self::$_node->omni_createrawtx_opreturn($rawtx, $payload);
+				//var_dump($payload, $modrawtx);
+				if ($modrawtx) {
+					if(self::SendPrepare($userdata, $modrawtx, (array)$wallet->address, $input, $output)){
+						$return->answer = 'Sending creation prepared, sign it via mail';
+						$return->bool = true;
+						$return->input = $input;
+						$return->output = $output;
+						return $return;
+					}else{
+						$return->answer = 'Sending creation error';
+						$return->bool = false;
+						return $return;
+					}
+				}
+			}
+		}
+	}
+
+	function desireTrader($userdata, $property, $token, $holderdata, $challenger) {
+		$return = (object)array();
+		$wallet = self::Wallet($userdata);
+		$utxo = self::$_node->listunspent(1, 999999999, (array)$wallet->address);
+		$input = self::InputBuildMultiSig($utxo, 0);
+
+		if ($input) {
+			$fee = self::FeeBuild($challenger);
+			$output = array();
+
+			$output[$fee->destination] = number_format($fee->amount, 8, '.', '');
+			$output[$wallet->address] = $input->amount - 0.00031937;
+			
+			$input->chainfee += count($output) * 0.00000034;
+			$input->chainfee = number_format($input->chainfee, 8, '.', '');
+
+			$output[$wallet->address] -= count($output) * 0.00000034;
+			$output[$wallet->address] = number_format($output[$wallet->address], 8, '.', '');
+
+			$rawtx = self::$_node->createrawtransaction($input->list, (object)$output);
+			if ($rawtx) {
+				$payload = self::$_node->omni_createpayload_setnonfungibledata($property, $token, $token, false, $holderdata);
+				$modrawtx = self::$_node->omni_createrawtx_multisig($rawtx, $payload, $wallet->address, $wallet->address);
+				if ($modrawtx) {
+					if(self::SendPrepare($userdata, $modrawtx, (array)$wallet->address, $input, $output)){
+						$return->answer = 'Sending creation prepared, sign it via mail';
+						$return->bool = true;
+						$return->input = $input;
+						$return->output = $output;
+						return $return;
+					}else{
+						$return->answer = 'Sending creation error';
+						$return->bool = false;
+						return $return;
+					}
+				}
+			}
+		}
+	}
+
+	function listTrader($userdata, $property, $token, $challenger) {
+		$return = (object)array();
+		$trader = 'MGTjUjDccbaCQZEyhFHDr1x9SAGwhyxa2L';
+		$wallet = self::wallet($userdata);
+		$utxo = self::$_node->listunspent(1, 999999999, (array)$wallet->address);
+
+		$input = self::InputBuild($utxo, 0.0001);
+		if ($input) {
+			$fee = self::FeeBuild($challenger);
+			$output = array();
+
+			$output[$fee->destination] = number_format($fee->amount, 8, '.', '');
+			$output[$wallet->address] = $input->change;
+
+			$input->chainfee += count($output) * 0.00000034;
+			$input->chainfee = number_format($input->chainfee, 8, '.', '');
+
+			$output[$wallet->address] -= count($output) * 0.00000034;
+			$output[$wallet->address] = number_format($output[$wallet->address], 8, '.', '');
+
+			$output[$trader] = number_format(0.0001, 8, '.', '');
+
+			$rawtx = self::$_node->createrawtransaction($input->list, (object)$output);
+			if ($rawtx) {
+				$payload = self::$_node->omni_createpayload_sendnonfungible($property, $token, $token);
+				$modrawtx = self::$_node->omni_createrawtx_opreturn($rawtx, $payload);
+				if ($modrawtx) {
+					if(self::SendPrepare($userdata, $modrawtx, (array)$wallet->address, $input, $output)){
+						$return->answer = 'Sending creation prepared, sign it via mail';
+						$return->bool = true;
+						$return->input = $input;
+						$return->output = $output;
+						return $return;
+					}else{
+						$return->answer = 'Sending creation error';
+						$return->bool = false;
+						return $return;
+					}
+				}
+			}
+		}
+	}
+
+	function SendToken($userdata, $destination, $property, $amount, $challenger) {
+		$return = (object)array();
+		$wallet = self::Wallet($userdata);
+		$utxo = self::$_node->listunspent(1, 999999999, (array)$wallet->address);
+
+		$input = self::InputBuild($utxo, 0.0001);
+		if ($input) {
+			// create default output
+			$fee = self::FeeBuild($challenger);
+			$output = array();
+
+			$output[$fee->destination] = number_format($fee->amount, 8, '.', '');
+			$output[$wallet->address] = $input->change;
+
+			$input->chainfee += count($output) * 0.00000034;
+			$input->chainfee = number_format($input->chainfee, 8, '.', '');
+
+			$output[$wallet->address] -= count($output) * 0.00000034;
+			$output[$wallet->address] = number_format($output[$wallet->address], 8, '.', '');
+
+			$output[$destination] = number_format(0.0001, 8, '.', '');
 			
 
-			for ($a=0; $a < count($history); $a++) { 
-				$history[$a]['unspent'] = false;
-				$history[$a]['amount'] = number_format($history[$a]['amount'], 8, ".", "");
-				for ($b=0; $b < count($unspent); $b++) { 
-					if ($history[$a]['txid'] == $unspent[$b]['txid']) {
-						$history[$a]['unspent'] = true;
+			$rawtx = self::$_node->createrawtransaction($input->list, (object)$output);
+			if ($rawtx) {
+				$payload = self::$_node->omni_createpayload_simplesend($property, $amount);
+				$modrawtx = self::$_node->omni_createrawtx_opreturn($rawtx, $payload);
+				if ($modrawtx) {
+					if(self::SendPrepare($userdata, $modrawtx, (array)$wallet->address, $input, $output)){
+						$return->answer = 'Sending creation prepared, sign it via mail';
+						$return->bool = true;
+						$return->input = $input;
+						$return->output = $output;
+						return $return;
+					}else{
+						$return->answer = 'Sending creation error';
+						$return->bool = false;
+						return $return;
 					}
 				}
 			}
-
-			//var_dump($history);
-			echo json_encode($history, JSON_PRETTY_PRINT);
-
-			/*for ($a=0; $a < count($segwit); $a++) { 
-				for ($b=0; $b < count($unspent['segwit']); $b++) { 
-					if ($segwit[$a]->txid == $unspent['segwit'][$b]['txid']) {
-						$segwit[$a]->unspent = true;
-					}
-				}
-			}
-
-			for ($a=0; $a < count($taproot); $a++) { 
-				for ($b=0; $b < count($unspent['taproot']); $b++) { 
-					if ($taproot[$a]->txid == $unspent['taproot'][$b]['txid']) {
-						$taproot[$a]->unspent = true;
-					}
-				}
-			}*/
-
-			//var_dump($array);
-			//echo json_encode($omni, JSON_PRETTY_PRINT);
 		}
-   }
+	}
+
+	function getDEX() {
+		$dex = self::$_node->omni_getactivedexsells();
+		//$object = (object)array();
+
+		for ($a=0; $a < count($dex); $a++) { 
+			$dex[$a]['data'] = self::$_node->omni_getproperty($dex[$a]['propertyid']);
+			$dex[$a]['data']['structure'] = 'custom';
+
+			try {
+				$object = json_decode($dex[$a]['data']['data']);
+				if (property_exists($object, 'structure')) {
+					$dex[$a]['data']['structure'] = $object->structure;
+				}
+			} catch (\Throwable $th) {}
+		}
+
+		return $dex;
+		//echo json_encode($dex, JSON_PRETTY_PRINT);
+	}
+
+	function createDEX($userdata, $property, $amount, $desire) {
+		$window = 21;
+		$minfee = '0.00000100';
+		$action = 1;
+
+		$return = (object)array();
+		$wallet = self::Wallet($userdata);
+		$utxo = self::$_node->listunspent(1, 999999999, (array)$wallet->address);
+
+		$input = self::InputBuild($utxo, 0);
+		if ($input) {
+			// create default output
+			$fee = self::FeeBuild($challenger);
+			$output = array();
+
+			$output[$fee->destination] = number_format($fee->amount, 8, '.', '');
+			$output[$wallet->address] = $input->change;
+
+			$input->chainfee += count($output) * 0.00000034;
+			$input->chainfee = number_format($input->chainfee, 8, '.', '');
+
+			$output[$wallet->address] -= count($output) * 0.00000034;
+			$output[$wallet->address] = number_format($output[$wallet->address], 8, '.', '');
+
+			$rawtx = self::$_node->createrawtransaction($input->list, (object)$output);
+			var_dump($input, $output);
+			var_dump($rawtx);
+			if ($rawtx) {
+				$payload = self::$_node->omni_createpayload_dexsell($property, $amount, $desire, $window, $minfee, $action);
+				$modrawtx = self::$_node->omni_createrawtx_opreturn($rawtx, $payload);
+				if ($modrawtx) {
+					if(self::SendPrepare($userdata, $modrawtx, (array)$wallet->address, $input, $output)){
+						$return->answer = 'Sending creation prepared, sign it via mail';
+						$return->bool = true;
+						$return->input = $input;
+						$return->output = $output;
+						return $return;
+					}else{
+						$return->answer = 'Sending creation error';
+						$return->bool = false;
+						return $return;
+					}
+				}
+			}
+		}
+	}
+
+	function cancelDEX($userdata, $property) {
+		$return = (object)array();
+		$wallet = self::Wallet($userdata);
+		$utxo = self::$_node->listunspent(1, 999999999, (array)$wallet->address);
+
+		$input = self::InputBuild($utxo, 0);
+		if ($input) {
+			// create default output
+			$fee = self::FeeBuild($challenger);
+			$output = array();
+
+			$output[$fee->destination] = number_format($fee->amount, 8, '.', '');
+			$output[$wallet->address] = $input->change;
+
+			$input->chainfee += count($output) * 0.00000034;
+			$input->chainfee = number_format($input->chainfee, 8, '.', '');
+
+			$output[$wallet->address] -= count($output) * 0.00000034;
+			$output[$wallet->address] = number_format($output[$wallet->address], 8, '.', '');
+
+			$rawtx = self::$_node->createrawtransaction($input->list, (object)$output);
+			var_dump($input, $output);
+			var_dump($rawtx);
+			if ($rawtx) {
+				$payload = self::$_node->omni_createpayload_dexsell($property, "", "", 0, "", 3);
+				$modrawtx = self::$_node->omni_createrawtx_opreturn($rawtx, $payload);
+				if ($modrawtx) {
+					if(self::SendPrepare($userdata, $modrawtx, (array)$wallet->address, $input, $output)){
+						$return->answer = 'Sending creation prepared, sign it via mail';
+						$return->bool = true;
+						$return->input = $input;
+						$return->output = $output;
+						return $return;
+					}else{
+						$return->answer = 'Sending creation error';
+						$return->bool = false;
+						return $return;
+					}
+				}
+			}
+		}
+	}
+
+	function acceptDEX($userdata, $property, $amount, $destination) {
+		$return = (object)array();
+		$wallet = self::Wallet($userdata);
+		$utxo = self::$_node->listunspent(1, 999999999, (array)$wallet->address);
+
+		$input = self::InputBuild($utxo, 0.0001);
+		if ($input) {
+			// create default output
+			$fee = self::FeeBuild($challenger);
+			$output = array();
+
+			$output[$fee->destination] = number_format($fee->amount, 8, '.', '');
+			$output[$wallet->address] = $input->change;
+			$output[$destination] = '0.0001';
+
+			$input->chainfee += count($output) * 0.00000034;
+			$input->chainfee = number_format($input->chainfee, 8, '.', '');
+
+			$output[$wallet->address] -= count($output) * 0.00000034;
+			$output[$wallet->address] = number_format($output[$wallet->address], 8, '.', '');
+
+			$rawtx = self::$_node_dev->createrawtransaction($input->list, (object)$output);
+			var_dump($input, $output);
+			if ($rawtx) {
+				$payload = self::$_node_dev->omni_createpayload_dexaccept($property, $amount);
+				$modrawtx = self::$_node_dev->omni_createrawtx_opreturn($rawtx, $payload);
+				if ($modrawtx) {
+					if(self::SendPrepare($userdata, $modrawtx, (array)$wallet->address, $input, $output)){
+						$return->answer = 'Sending creation prepared, sign it via mail';
+						$return->bool = true;
+						$return->input = $input;
+						$return->output = $output;
+						return $return;
+					}else{
+						$return->answer = 'Sending creation error';
+						$return->bool = false;
+						return $return;
+					}
+				}
+			}
+		}
+	}
+
+	function payDEX($userdata, $destination, $property, $amount) {
+		$return = (object)array();
+		$wallet = self::Wallet($userdata);
+
+		var_dump($userdata, $wallet);
+
+		$txid = self::$_node_dev->omni_senddexpay($wallet->address, $destination, $property, $amount);
+		if ($txid) {
+			return (object)array("answer"=>"Transaction executed","bool"=>true,"TransactionID"=>$txid);
+		} else {
+			return (object)array("answer"=>"Transaction failed","bool"=>false);
+		}
+		
+	}
+
+	function faucet($userdata) {
+		$return = (object)array();
+		$wallet = self::Wallet($userdata);
+		$object = (object)array();
+		$object->User = '#faucet';
+		$object = self::Wallet($object);
+		$faucet = 'MCtYmUDUvjCatos2whjAsPaBr2a1nwA1tG';
+		$utxo = self::$_node->listunspent(6, 999999999, (array)$faucet);
+		$rand = rand(1,100);
+		$nft = false;
+
+		//var_dump($rand);
+		if ((float)$object->balance > 0.00025) {
+			if ($wallet->dive) {
+				$amount = (float)$object->balance * 0.01;
+
+				if ($amount < 0.0001) {
+					$amount = 0.0001;
+				}
+				if ($rand <= 10) {
+					$nft = true;
+				}
+			} else {
+				$amount = (float)$object->balance * 0.001;
+
+				if ($amount < 0.0001) {
+					$amount = 0.0001;
+				}
+				if ($rand <= 5) {
+					$nft = true;
+				}
+			}
+			//var_dump($amount);
+			//var_dump($nft);
+		}
+		array_pop($object->token['nft']);
+		
+		if ($nft) {
+			$array = array();
+			for ($a=0; $a < count($object->token['nft']); $a++) { 
+				$element = $object->token['nft'][$a];
+				array_push($array, $element['propertyid']);
+				
+			}
+			shuffle($array);
+			$propertyid = $array[0];
+			for ($a=0; $a < count($object->token['nft']); $a++) { 
+				$element = $object->token['nft'][$a];
+				if ($element['propertyid'] == $propertyid) {
+					shuffle($element['tokenindex']);
+					$tokenid = $element['tokenindex'][0];
+				}
+			}
+			//var_dump($propertyid, $tokenid);
+			//var_dump($object->token['nft']);
+			// send nft with given faucet amount
+			$input = self::InputBuild($utxo, $amount);
+			if ($input) {
+				$output = array();
+
+				$output[$wallet->address] = number_format($amount, 8, '.', '');
+				$output[$object->address] = $input->change;
+
+				$input->chainfee += count($output) * 0.00000034;
+				$input->chainfee = number_format($input->chainfee, 8, '.', '');
+
+				$output[$object->address] -= count($output) * 0.00000034;
+				$output[$object->address] = number_format($output[$object->address], 8, '.', '');
+
+				//var_dump($input, $output);
+				$rawtx = self::$_node->createrawtransaction($input->list, (object)$output);
+				if ($rawtx) {
+					$payload = self::$_node->omni_createpayload_sendnonfungible($propertyid, $tokenid, $tokenid);
+					$modrawtx = self::$_node->omni_createrawtx_opreturn($rawtx, $payload);
+					if ($modrawtx) {
+						$signtx = self::$_node->signrawtransaction($rawtx);
+						$txid = self::$_node->sendrawtransaction($signtx['hex']);
+
+						$return->answer = $amount.' LTC & a NFT are on the Way!';
+						$return->bool = true;
+						$return->amount = $amount;
+						$return->txid = $txid;
+						$return->propertyid = $propertyid;
+						$return->tokenid = $tokenid;
+						return $return;
+					}
+				}
+
+			}
+		} else {
+			// send faucet amount
+			$input = self::InputBuild($utxo, $amount);
+			if ($input) {
+				$output = array();
+
+				$output[$wallet->address] = number_format($amount, 8, '.', '');
+				$output[$object->address] = $input->change;
+
+				$input->chainfee += count($output) * 0.00000034;
+				$input->chainfee = number_format($input->chainfee, 8, '.', '');
+
+				$output[$object->address] -= count($output) * 0.00000034;
+				$output[$object->address] = number_format($output[$object->address], 8, '.', '');
+
+				//var_dump($input, $output);
+				$rawtx = self::$_node->createrawtransaction($input->list, (object)$output);
+				if ($rawtx) {
+					$signtx = self::$_node->signrawtransaction($rawtx);
+					$txid = self::$_node->sendrawtransaction($signtx['hex']);
+
+					$return->answer = $amount.' LTC are on the Way!';
+					$return->bool = true;
+					$return->amount = $amount;
+					$return->txid = $txid;
+					return $return;
+				}
+			}
+		}
+	}
